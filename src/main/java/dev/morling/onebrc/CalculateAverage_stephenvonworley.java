@@ -283,53 +283,52 @@ public class CalculateAverage_stephenvonworley {
         return ((value << shift) >>> shift);
     }
 
+    private static long[] maskL;
+    private static long[] maskH;
+
+    static {
+        maskL = new long[100];
+        maskH = new long[100];
+        for (int i = 0; i < 100; i++) {
+            maskL[i] = byteMask(i);
+            maskH[i] = byteMask(i - 8);
+        }
+    }
+
+    private static long byteMask(int count) {
+        if (count <= 0) {
+            return 0;
+        }
+        if (count >= 8) {
+            return -1L;
+        }
+        return -1L >>> ((8 - count) * 8);
+    }
+
+    static int count = 0;
+
     // https://softwareengineering.stackexchange.com/questions/402542/where-do-magic-hashing-constants-like-0x9e3779b9-and-0x9e3779b1-come-from
     private static long locate(long start, long semicolon, long tallies, Table table) {
         long len = semicolon - start;
-        long word = getLong(start);
-        if (len <= 8) {
-            word = trim(word, 8 - len);
-            long hash = word * GOLDEN_LONG;
-            long offset = (hash >>> (64 - HASH_BITS)) << TALLY_BITS;
-            while (true) {
-                long tally = tallies + offset;
-                long tlen = getByte(tally + OFFSET_LEN);
-                long tword = getLong(tally + OFFSET_NAME);
-                if (len == tlen && word == tword) {
-                    return tally;
-                }
-                if (tword == 0) {
-                    init(tally, start, len, table);
-                    return tally;
-                }
-                offset = (offset + TALLY_SIZE) & HASH_MASK;
-            }
+        long word = getLong(start) & maskL[(int) len];
+        long word2 = getLong(start + 8) & maskH[(int) len];
+        long hash = (word + word2) * GOLDEN_LONG;
+        long offset = (hash >>> (64 - HASH_BITS)) << TALLY_BITS;
+        long tally = tallies + offset;
+        if (len <= 15 && word == getLong(tally + OFFSET_NAME) && word2 == getLong(tally + OFFSET_NAME + 8)) {
+            return tally;
         }
-        else {
-            long word2 = getLong(semicolon - 8);
-            long hash = (word + word2) * GOLDEN_LONG;
-            long offset = (hash >>> (64 - HASH_BITS)) << TALLY_BITS;
-            while (true) {
-                long tally = tallies + offset;
-                long tword = getLong(tally + OFFSET_NAME);
-                if (len <= 16) {
-                    long tlen = getByte(tally + OFFSET_LEN);
-                    long tword2 = getLong(tally + OFFSET_NAME + len - 8);
-                    if (len == tlen && word == tword && word2 == tword2) {
-                        return tally;
-                    }
-                }
-                else {
-                    if (match(tally, start, len)) {
-                        return tally;
-                    }
-                }
-                if (tword == 0) {
-                    init(tally, start, len, table);
-                    return tally;
-                }
-                offset = (offset + TALLY_SIZE) & HASH_MASK;
+
+        while (true) {
+            if (len == getByte(tally + OFFSET_LEN) && match(start, tally + OFFSET_NAME, len)) {
+                return tally;
             }
+            if (getByte(tally + OFFSET_NAME) == 0) {
+                init(tally, start, len, table);
+                return tally;
+            }
+            offset = (offset + TALLY_SIZE) & HASH_MASK;
+            tally = tallies + offset;
         }
     }
 
@@ -341,12 +340,7 @@ public class CalculateAverage_stephenvonworley {
         t.addresses[t.count++] = tally;
     }
 
-    private static boolean match(long tally, long name, long len) {
-        if (getByte(tally + OFFSET_LEN) != len) {
-            return false;
-        }
-        long a = name;
-        long b = tally + OFFSET_NAME;
+    private static boolean match(long a, long b, long len) {
         while (len > 7) {
             if (getLong(a) != getLong(b)) {
                 return false;
@@ -355,10 +349,7 @@ public class CalculateAverage_stephenvonworley {
             b += 8;
             len -= 8;
         }
-        if (len > 0) {
-            return (trim(getLong(a), 8 - len) == getLong(b));
-        }
-        return true;
+        return ((getLong(a) ^ getLong(b)) & maskL[(int) len]) == 0;
     }
 
     // credit: Wonderfully-fast number parsing implementation by Quan Anh Mai
